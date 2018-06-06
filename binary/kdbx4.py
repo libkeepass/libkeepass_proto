@@ -244,6 +244,9 @@ UnpackedPayload = Reparsed(
     )
 )
 
+
+# -------------------- Main KDBX Structure --------------------
+
 KDBX4 = Struct(
     "header" / RawCopy(
         Struct(

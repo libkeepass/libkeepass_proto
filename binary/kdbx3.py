@@ -51,6 +51,8 @@ kdf_uuids = {
 CipherId = Mapping(
     GreedyBytes,
     {'aes256': b'1\xc1\xf2\xe6\xbfqCP\xbeX\x05!j\xfcZ\xff',
+     'twofish': b'\xadh\xf2\x9fWoK\xb9\xa3j\xd4z\xf9e4l',
+     'chacha20': b'\xd6\x03\x8a+\x8boL\xb5\xa5$3\x9a1\xdb\xb5\x9a'
     }
 )
 
@@ -152,6 +154,8 @@ UnpackedPayload = Reparsed(
     )
 )
 
+
+# -------------------- Main KDBX Structure --------------------
 
 # ***
 KDBX3 = Struct(
