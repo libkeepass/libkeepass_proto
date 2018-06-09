@@ -195,7 +195,7 @@ EncryptedPayloadBlock = Struct(
             Bytes(32),
             compute_payload_block_hash,
             this,
-            exception=PayloadChecksumError
+            # exception=PayloadChecksumError
         )
     )
 )
@@ -249,13 +249,13 @@ Body = Struct(
         Bytes(32),
         lambda data: hashlib.sha256(data).digest(),
         this._.header.data,
-        exception=HeaderChecksumError,
+        # exception=HeaderChecksumError,
     ),
     "hmac" / Checksum(
         Bytes(32),
         compute_header_hmac_hash,
         this,
-        exception=CredentialsError,
+        # exception=CredentialsError,
     ),
     "payload" / UnpackedPayload(
         IfThenElse(

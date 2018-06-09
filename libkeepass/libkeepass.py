@@ -27,30 +27,3 @@ KDBX = Struct(
         }
     )
 )
-
-# password = b'shatpass'
-
-# keyfile = 'test3.key'
-# result = KDBX.parse_file('test3.kdbx', password=password, keyfile=keyfile)
-# KDBX.parse(
-#     KDBX.build(
-#         result,
-#         password=password,
-#         keyfile=keyfile
-#     ),
-#     password=password,
-#     keyfile=keyfile
-# )
-
-# keyfile = 'test4.key'
-# result = KDBX.parse_file(s, password=password, keyfile=keyfile)
-
-# KDBX.parse(
-#     KDBX.build(
-#         result,
-#         password=password,
-#         keyfile=keyfile
-#     ),
-#     password=password,
-#     keyfile=keyfile
-# )

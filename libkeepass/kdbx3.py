@@ -103,7 +103,7 @@ PayloadBlock = Struct(
                 Bytes(32),
                 lambda block_data: hashlib.sha256(block_data).digest(),
                 this.block_data,
-                exception=PayloadChecksumError
+                # exception=PayloadChecksumError
             )
         )
     ),
@@ -126,7 +126,7 @@ UnpackedPayload = Reparsed(
             Bytes(32),
             lambda this: this._._.header.value.dynamic_header.stream_start_bytes.data,
             this,
-            exception=CredentialsError
+            # exception=CredentialsError
         ),
         "xml" / XML(
             IfThenElse(
