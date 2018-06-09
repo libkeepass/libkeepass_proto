@@ -9,26 +9,34 @@ from lxml import etree
 import base64
 import zlib
 
+class HeaderChecksumError(Exception):
+    pass
+class CredentialsError(Exception):
+    pass
+class PayloadChecksumError(Exception):
+    pass
 
 def Reparsed(subcon_out):
     class Reparsed(Adapter):
         """Bytes <---> Parsed subcon result
         Takes in bytes and reparses it with subcon_out"""
 
-        def __init__(self, subcon):
-            super().__init__(subcon)
-            self.subcon_out = subcon_out
-
         def _decode(self, data, con, path):
-            return self.subcon_out.parse(data, **con)
+            return subcon_out.parse(data, **con)
 
         def _encode(self, obj, con, path):
-            return self.subcon_out.build(obj, **con)
+            return subcon_out.build(obj, **con)
+
     return Reparsed
 
-def aes_kdf(key, rounds, key_composite):
-    # set up a context for AES128-ECB encryption to find transformed_key
+def aes_kdf(key, rounds, password=None, keyfile=None):
+    """set up a context for AES128-ECB encryption to find transformed_key"""
+
     cipher = AES.new(key, AES.MODE_ECB)
+    key_composite = compute_key_composite(
+        password=password,
+        keyfile=keyfile
+    )
 
     # get the number of rounds from the header and transform the key_composite
     transformed_key = key_composite
@@ -82,7 +90,7 @@ def compute_master(context):
 
     # combine the transformed key with the header master seed to find the master_key
     master_key = hashlib.sha256(
-        context.header.value.dynamic_header.master_seed.data +
+        context._.header.value.dynamic_header.master_seed.data +
         context.transformed_key).digest()
     return master_key
 
@@ -109,7 +117,7 @@ class DecryptPayload(Adapter):
     def _decode(self, payload_data, con, path):
         cipher = self.get_cipher(
             con.master_key,
-            con.header.value.dynamic_header.encryption_iv.data
+            con._.header.value.dynamic_header.encryption_iv.data
         )
         payload_data = cipher.decrypt(payload_data)
 
@@ -119,7 +127,7 @@ class DecryptPayload(Adapter):
         payload_data = CryptoPadding.pad(payload_data, 16)
         cipher = self.get_cipher(
             con.master_key,
-            con.header.value.dynamic_header.encryption_iv.data
+            con._.header.value.dynamic_header.encryption_iv.data
         )
         payload_data = cipher.encrypt(payload_data)
 

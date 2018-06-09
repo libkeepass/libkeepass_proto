@@ -5,29 +5,19 @@
 import struct
 import hashlib
 import argon2
-import zlib
-import copy
 import hmac
-from io import BytesIO
 from construct import (
-    Byte, Bytes, Int16ul, Int32ul, RepeatUntil, GreedyBytes, Struct, this,
-    BitsSwapped, RawCopy, Mapping, Adapter, Container, Switch, Flag, Prefixed,
-    ListContainer, Int64ul, Int32sl, Int64sl, GreedyString, BitStruct, Padding,
+    Byte, Bytes, Int32ul, RepeatUntil, GreedyBytes, Struct, this, Mapping,
+    Switch, Flag, Prefixed, Int64ul, Int32sl, Int64sl, GreedyString, Padding,
     Peek, Checksum, Computed, IfThenElse, Pointer, Tell
 )
 from common import (
     aes_kdf, Concatenated, AES256Payload, ChaCha20Payload, TwoFishPayload,
     DynamicDict, compute_key_composite, Reparsed, Decompressed,
-    compute_master, CompressionFlags
+    compute_master, CompressionFlags, HeaderChecksumError, CredentialsError,
+    PayloadChecksumError
 )
 
-database = 'test4.kdbx'
-password = b'shatpass'
-# password = None
-keyfile = 'test4.key'
-# keyfile = None
-
-s = BytesIO(open(database, 'rb').read())
 
 # -------------------- Key Derivation --------------------
 
@@ -37,10 +27,14 @@ kdf_uuids = {
     'aes': b'\xc9\xd9\xf3\x9ab\x8aD`\xbft\r\x08\xc1\x8aO\xea',
 }
 
-def compute_transformed(context, key_composite):
+def compute_transformed(context):
     """Compute transformed key for opening database"""
 
-    kdf_parameters = context.header.value.dynamic_header.kdf_parameters.data.dict
+    key_composite = compute_key_composite(
+        password=context._._.password,
+        keyfile=context._._.keyfile
+    )
+    kdf_parameters = context._.header.value.dynamic_header.kdf_parameters.data.dict
 
     if kdf_parameters['$UUID'].value == kdf_uuids['argon2']:
         transformed_key = argon2.low_level.hash_secret_raw(
@@ -72,12 +66,12 @@ def compute_header_hmac_hash(context):
         hashlib.sha512(
             b'\xff' * 8 +
             hashlib.sha512(
-                context.header.value.dynamic_header.master_seed.data +
+                context._.header.value.dynamic_header.master_seed.data +
                 context.transformed_key +
                 b'\x01'
             ).digest()
         ).digest(),
-        context.header.data,
+        context._.header.data,
         hashlib.sha256
     ).digest()
 
@@ -174,7 +168,7 @@ def compute_payload_block_hash(this):
         hashlib.sha512(
             struct.pack('<Q', this._index) +
             hashlib.sha512(
-                this._.header.value.dynamic_header.master_seed.data +
+                this._._.header.value.dynamic_header.master_seed.data +
                 this._.transformed_key + b'\x01'
             ).digest()
         ).digest(),
@@ -200,7 +194,8 @@ EncryptedPayloadBlock = Struct(
         Checksum(
             Bytes(32),
             compute_payload_block_hash,
-            this
+            this,
+            exception=PayloadChecksumError
         )
     )
 )
@@ -211,7 +206,7 @@ EncryptedPayload = Concatenated(RepeatUntil(
 ))
 
 DecryptedPayload = Switch(
-    this.header.value.dynamic_header.cipher_id.data,
+    this._.header.value.dynamic_header.cipher_id.data,
     {'aes256': AES256Payload(EncryptedPayload),
      'chacha20': ChaCha20Payload(EncryptedPayload),
      'twofish': TwoFishPayload(EncryptedPayload)
@@ -247,38 +242,26 @@ UnpackedPayload = Reparsed(
 
 # -------------------- Main KDBX Structure --------------------
 
-KDBX4 = Struct(
-    "header" / RawCopy(
-        Struct(
-            "magic1" / Bytes(4),
-            "magic2" / Bytes(4),
-            "minor_version" / Int16ul,
-            "major_version" / Int16ul,
-            "dynamic_header" / DynamicHeader
-        )
-    ),
-    "transformed_key" / Computed(
-        lambda cont: compute_transformed(
-            cont,
-            compute_key_composite(password=password, keyfile=keyfile)
-        )
-    ),
-    "master_key" / Computed(lambda cont: compute_master(cont)),
-    "SHA256 checksum" * Checksum(
+Body = Struct(
+    "transformed_key" / Computed(compute_transformed),
+    "master_key" / Computed(compute_master),
+    "sha256" / Checksum(
         Bytes(32),
         lambda data: hashlib.sha256(data).digest(),
-        this.header.data
+        this._.header.data,
+        exception=HeaderChecksumError,
     ),
-    "HMAC-SHA256 checksum" * Checksum(Bytes(32), compute_header_hmac_hash, this),
+    "hmac" / Checksum(
+        Bytes(32),
+        compute_header_hmac_hash,
+        this,
+        exception=CredentialsError,
+    ),
     "payload" / UnpackedPayload(
         IfThenElse(
-            this.header.value.dynamic_header.compression_flags.data.compression,
+            this._.header.value.dynamic_header.compression_flags.data.compression,
             Decompressed(DecryptedPayload),
             DecryptedPayload
         )
     )
 )
-
-result = KDBX4.parse_stream(s)
-
-KDBX4.parse(KDBX4.build(result))
