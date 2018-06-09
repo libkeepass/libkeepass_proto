@@ -8,10 +8,11 @@ from construct import (
     Mapping, Switch, Prefixed, Padding, Checksum, Computed, IfThenElse,
     Pointer, Tell, len_
 )
-from common import (
+from .common import (
     aes_kdf, AES256Payload, ChaCha20Payload, TwoFishPayload, Concatenated,
     DynamicDict, compute_key_composite, Decompressed, Reparsed,
-    compute_master, CompressionFlags, CredentialsError, PayloadChecksumError
+    compute_master, CompressionFlags, CredentialsError, PayloadChecksumError,
+    XML
 )
 
 

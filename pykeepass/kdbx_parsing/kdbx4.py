@@ -11,11 +11,11 @@ from construct import (
     Switch, Flag, Prefixed, Int64ul, Int32sl, Int64sl, GreedyString, Padding,
     Peek, Checksum, Computed, IfThenElse, Pointer, Tell
 )
-from common import (
+from .common import (
     aes_kdf, Concatenated, AES256Payload, ChaCha20Payload, TwoFishPayload,
     DynamicDict, compute_key_composite, Reparsed, Decompressed,
     compute_master, CompressionFlags, HeaderChecksumError, CredentialsError,
-    PayloadChecksumError
+    PayloadChecksumError, XML
 )
 
 
@@ -235,7 +235,7 @@ InnerHeader = DynamicDict(
 UnpackedPayload = Reparsed(
     Struct(
         "inner_header" / InnerHeader,
-        "xml" / GreedyBytes
+        "xml" / XML(GreedyBytes)
     )
 )
 

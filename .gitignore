@@ -4,3 +4,4 @@ dist/
 *.kdbx
 *.egg-info/
 *.xml
+**/__pycache__

@@ -8,6 +8,7 @@ from construct import (
 from lxml import etree
 import base64
 import zlib
+from io import BytesIO
 
 class HeaderChecksumError(Exception):
     pass
@@ -28,6 +29,7 @@ def Reparsed(subcon_out):
             return subcon_out.build(obj, **con)
 
     return Reparsed
+
 
 def aes_kdf(key, rounds, password=None, keyfile=None):
     """set up a context for AES128-ECB encryption to find transformed_key"""
@@ -95,8 +97,19 @@ def compute_master(context):
     return master_key
 
 
+class XML(Adapter):
+    """Bytes <---> lxml etree"""
+
+    def _decode(self, data, con, path):
+        return etree.parse(BytesIO(data))
+
+    def _encode(self, tree, con, path):
+        return etree.tostring(tree)
+
+
 class Concatenated(Adapter):
     """Data Blocks <---> Bytes"""
+
     def _decode(self, blocks, con, path):
         return b''.join([block.block_data for block in blocks])
 
