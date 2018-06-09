@@ -128,10 +128,12 @@ UnpackedPayload = Reparsed(
             this,
             exception=CredentialsError
         ),
-        "xml" / IfThenElse(
-            this._._.header.value.dynamic_header.compression_flags.data.compression,
-            Decompressed(Concatenated(PayloadBlocks)),
-            Concatenated(PayloadBlocks)
+        "xml" / XML(
+            IfThenElse(
+                this._._.header.value.dynamic_header.compression_flags.data.compression,
+                Decompressed(Concatenated(PayloadBlocks)),
+                Concatenated(PayloadBlocks)
+            )
         )
     )
 )

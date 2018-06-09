@@ -1,19 +1,24 @@
-from setuptools import find_packages, setup
-
+from setuptools import setup, find_packages
+from libkeepass import version
 
 setup(
-    name='pykeepass',
-    version='2.8.2',
-    license='GPL3',
-    description='Low-level library to interact with keepass databases '
-                '(supports the v.4 format)',
-    long_description=open('README.rst').read(),
-    author='Philipp Schmitt',
-    author_email='philipp@schmitt.co',
-    url='https://github.com/pschmitt/pykeepass',
+    name='libkeepass',
+    version=version.__version__,
     packages=find_packages(),
-    install_requires=['libkeepass', 'easypysmb', 'python-dateutil'],
-    entry_points={
-        'console_scripts': ['pkpwrite=pykeepass.pkpwrite:main']
-    }
+    author="Evan Widloski",
+    author_email="evan@evanw.org",
+    description="Low level library for parsing Keepass KDBX3 and KDBX4 databases",
+    long_description=open('README.rst').read(),
+    license="GPLv3",
+    keywords="keepass pykeepass libkeepass",
+    url="https://github.com/libkeepass/libkeepass_proto",
+    install_requires=[
+        "construct",
+        "argon2_cffi",
+        "pycryptodome",
+        "lxml"
+    ],
+    classifiers=[
+        "Programming Language :: Python :: 3",
+    ]
 )

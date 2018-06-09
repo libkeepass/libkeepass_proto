@@ -54,7 +54,7 @@ def compute_key_composite(password=None, keyfile=None):
 
     # hash the password
     if password:
-        password_composite = hashlib.sha256(password).digest()
+        password_composite = hashlib.sha256(password.encode('utf-8')).digest()
     else:
         password_composite = b''
     # hash the keyfile
