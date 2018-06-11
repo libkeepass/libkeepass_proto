@@ -1,9 +1,10 @@
-from Crypto.Cipher import AES, ChaCha20
+from Crypto.Cipher import AES, ChaCha20, Salsa20
 from Crypto.Util import Padding as CryptoPadding
 import hashlib
 from construct import (
-    Adapter, BitStruct, BitsSwapped, Container,
-    Flag, Padding, RepeatUntil, Subconstruct, Construct, ListContainer
+    Adapter, BitStruct, BitsSwapped, Container, Flag, Padding, RepeatUntil,
+    Subconstruct, Construct, ListContainer, Mapping, GreedyBytes, Int32ul,
+    Switch
 )
 from lxml import etree
 import base64
@@ -16,6 +17,25 @@ class CredentialsError(Exception):
     pass
 class PayloadChecksumError(Exception):
     pass
+
+
+class DynamicDict(Adapter):
+    """ListContainer <---> Container
+    Convenience mapping so we dont have to iterate ListContainer to find
+    the right item"""
+
+    def __init__(self, key, subcon):
+        super().__init__(subcon)
+        self.key = key
+
+    # map ListContainer to Container
+    def _decode(self, obj, context, path):
+        d = {item[self.key]:item for item in obj}
+        return Container(d)
+
+    # map Container to ListContainer
+    def _encode(self, obj, context, path):
+        return ListContainer(obj.values())
 
 def Reparsed(subcon_out):
     class Reparsed(Adapter):
@@ -30,9 +50,15 @@ def Reparsed(subcon_out):
 
     return Reparsed
 
+# is the payload compressed?
+CompressionFlags = BitsSwapped(
+    BitStruct("compression" / Flag, Padding(8 * 4 - 1))
+)
+
+# -------------------- Key Computation --------------------
 
 def aes_kdf(key, rounds, password=None, keyfile=None):
-    """set up a context for AES128-ECB encryption to find transformed_key"""
+    """Set up a context for AES128-ECB encryption to find transformed_key"""
 
     cipher = AES.new(key, AES.MODE_ECB)
     key_composite = compute_key_composite(
@@ -97,6 +123,9 @@ def compute_master(context):
     return master_key
 
 
+# -------------------- XML Processing --------------------
+
+
 class XML(Adapter):
     """Bytes <---> lxml etree"""
 
@@ -106,6 +135,81 @@ class XML(Adapter):
     def _encode(self, tree, con, path):
         return etree.tostring(tree)
 
+class UnprotectedStream(Adapter):
+    """lxml etree <---> unprotected lxml etree
+    Iterate etree for Protected elements and decrypt using cipher
+    provided by get_cipher"""
+
+    protected_xpath = '//Value[@Protected=\'True\']'
+    unprotected_xpath = '//Value[@Protected=\'False\']'
+
+    def __init__(self, protected_stream_key, subcon):
+        super(UnprotectedStream, self).__init__(subcon)
+        self.protected_stream_key = protected_stream_key
+
+    def _decode(self, tree, con, path):
+        cipher = self.get_cipher(self.protected_stream_key(con))
+        for elem in tree.xpath(self.protected_xpath):
+            elem.text = cipher.decrypt(
+                base64.b64decode(
+                    elem.text
+                )
+
+            )
+            elem.attrib['Protected'] = 'False'
+        return tree
+
+    def _encode(self, tree, con, path):
+        cipher = self.get_cipher(self.protected_stream_key(con))
+        for elem in tree.xpath(self.unprotected_xpath):
+            elem.text = base64.b64encode(
+                cipher.encrypt(
+                    elem.text.encode('utf-8')
+                )
+            )
+            elem.attrib['Protected'] = 'True'
+        return tree
+
+
+class ARCFourVariantStream(UnprotectedStream):
+    def get_cipher(self, protected_stream_key):
+        raise Exception("ARCFourVariant not implemented")
+
+# https://github.com/dlech/KeePass2.x/blob/97141c02733cd3abf8d4dce1187fa7959ded58a8/KeePassLib/Cryptography/CryptoRandomStream.cs#L115-L119
+class Salsa20Stream(UnprotectedStream):
+    def get_cipher(self, protected_stream_key):
+        key = hashlib.sha256(protected_stream_key).digest()
+        return Salsa20.new(
+            key=key,
+            nonce=b'\xE8\x30\x09\x4B\x97\x20\x5D\x2A'
+        )
+
+# https://github.com/dlech/KeePass2.x/blob/97141c02733cd3abf8d4dce1187fa7959ded58a8/KeePassLib/Cryptography/CryptoRandomStream.cs#L103-L111
+class ChaCha20Stream(UnprotectedStream):
+    def get_cipher(self, protected_stream_key):
+        key_hash = hashlib.sha512(protected_stream_key).digest()
+        key = key_hash[:32]
+        nonce = key_hash[32:44]
+        return ChaCha20.new(
+            key=key,
+            nonce=nonce
+        )
+
+
+def Unprotect(protected_stream_id, protected_stream_key, subcon):
+    """Select stream cipher based on protected_stream_id"""
+
+    return Switch(
+        protected_stream_id,
+        {'arcfourvariant': ARCFourVariantStream(protected_stream_key, subcon),
+         'salsa20': Salsa20Stream(protected_stream_key, subcon),
+         'chacha20': ChaCha20Stream(protected_stream_key, subcon),
+        },
+        default=subcon
+    )
+
+
+# -------------------- Payload Encryption/Decompression --------------------
 
 class Concatenated(Adapter):
     """Data Blocks <---> Bytes"""
@@ -124,7 +228,7 @@ class Concatenated(Adapter):
 
         return blocks
 
-class DecryptPayload(Adapter):
+class DecryptedPayload(Adapter):
     """Encrypted Bytes <---> Decrypted Bytes"""
 
     def _decode(self, payload_data, con, path):
@@ -146,15 +250,15 @@ class DecryptPayload(Adapter):
 
         return payload_data
 
-class AES256Payload(DecryptPayload):
+class AES256Payload(DecryptedPayload):
     def get_cipher(self, master_key, encryption_iv):
         return AES.new(master_key, AES.MODE_CBC, encryption_iv)
 
-class ChaCha20Payload(DecryptPayload):
+class ChaCha20Payload(DecryptedPayload):
     def get_cipher(self, master_key, encryption_iv):
         return ChaCha20.new(key=master_key, nonce=encryption_iv)
 
-class TwoFishPayload(DecryptPayload):
+class TwoFishPayload(DecryptedPayload):
     def get_cipher(self, master_key, encryption_iv):
         raise Exception("TwoFish not implemented")
 
@@ -175,31 +279,29 @@ class Decompressed(Adapter):
         )
         data = compressobj.compress(data)
         data += compressobj.flush()
-        # pad to multiple of 16 bytes
         return data
 
 
 
-class DynamicDict(Adapter):
-    """ListContainer <---> Container
-    Convenience mapping so we dont have to iterate ListContainer to find
-    the right item"""
+# -------------------- Cipher Enums --------------------
 
-    def __init__(self, key, subcon):
-        super().__init__(subcon)
-        self.key = key
-
-    # map ListContainer to Container
-    def _decode(self, obj, context, path):
-        d = {item[self.key]:item for item in obj}
-        return Container(d)
-
-    # map Container to ListContainer
-    def _encode(self, obj, context, path):
-        return ListContainer(obj.values())
-
-# is the payload compressed?
-CompressionFlags = BitsSwapped(
-    BitStruct("compression" / Flag, Padding(8 * 4 - 1))
+# payload encryption method
+# https://github.com/keepassxreboot/keepassxc/blob/8324d03f0a015e62b6182843b4478226a5197090/src/format/KeePass2.cpp#L24-L26
+CipherId = Mapping(
+    GreedyBytes,
+    {'aes256': b'1\xc1\xf2\xe6\xbfqCP\xbeX\x05!j\xfcZ\xff',
+     'twofish': b'\xadh\xf2\x9fWoK\xb9\xa3j\xd4z\xf9e4l',
+     'chacha20': b'\xd6\x03\x8a+\x8boL\xb5\xa5$3\x9a1\xdb\xb5\x9a'
+    }
 )
 
+# protected entry encryption method
+# https://github.com/dlech/KeePass2.x/blob/149ab342338ffade24b44aaa1fd89f14b64fda09/KeePassLib/Cryptography/CryptoRandomStream.cs#L35
+ProtectedStreamId = Mapping(
+    Int32ul,
+    {'none': 0,
+     'arcfourvariant': 1,
+     'salsa20': 2,
+     'chacha20': 3,
+    }
+)

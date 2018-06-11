@@ -4,7 +4,7 @@ from libkeepass import version
 setup(
     name='libkeepass',
     version=version.__version__,
-    packages=find_packages(),
+    packages=['libkeepass'],
     author="Evan Widloski",
     author_email="evan@evanw.org",
     description="Low level library for parsing Keepass KDBX3 and KDBX4 databases",

@@ -15,7 +15,8 @@ from .common import (
     aes_kdf, Concatenated, AES256Payload, ChaCha20Payload, TwoFishPayload,
     DynamicDict, compute_key_composite, Reparsed, Decompressed,
     compute_master, CompressionFlags, HeaderChecksumError, CredentialsError,
-    PayloadChecksumError, XML
+    PayloadChecksumError, XML, CipherId, ProtectedStreamId,
+    ARCFourVariantStream, Salsa20Stream, ChaCha20Stream, Unprotect
 )
 
 
@@ -113,16 +114,6 @@ VariantDictionary = Struct(
 
 # -------------------- Dynamic Header --------------------
 
-# payload encryption method
-# https://github.com/keepassxreboot/keepassxc/blob/8324d03f0a015e62b6182843b4478226a5197090/src/format/KeePass2.cpp#L24-L26
-CipherId = Mapping(
-    GreedyBytes,
-    {'aes256': b'1\xc1\xf2\xe6\xbfqCP\xbeX\x05!j\xfcZ\xff',
-     'twofish': b'\xadh\xf2\x9fWoK\xb9\xa3j\xd4z\xf9e4l',
-     'chacha20': b'\xd6\x03\x8a+\x8boL\xb5\xa5$3\x9a1\xdb\xb5\x9a'
-    }
-)
-
 # https://github.com/dlech/KeePass2.x/blob/dbb9d60095ef39e6abc95d708fb7d03ce5ae865e/KeePassLib/Serialization/KdbxFile.cs#L234-L246
 
 DynamicHeaderItem = Struct(
@@ -218,12 +209,19 @@ InnerHeaderItem = Struct(
     "type" / Mapping(
         Byte,
         {'end': 0x00,
-         'inner_random_stream_id': 0x01,
-         'inner_random_stream_key': 0x02,
+         'protected_stream_id': 0x01,
+         'protected_stream_key': 0x02,
          'binary': 0x03
         }
     ),
-    "data" / Prefixed(Int32ul, GreedyBytes)
+    "data" / Prefixed(
+        Int32ul,
+        Switch(
+            this.type,
+            {'protected_stream_id': ProtectedStreamId},
+            default=GreedyBytes
+        )
+    )
 )
 
 # another binary header inside decrypted and decompressed Payload
@@ -235,7 +233,11 @@ InnerHeader = DynamicDict(
 UnpackedPayload = Reparsed(
     Struct(
         "inner_header" / InnerHeader,
-        "xml" / XML(GreedyBytes)
+        "xml" / Unprotect(
+            this.inner_header.protected_stream_id.data,
+            this.inner_header.protected_stream_key.data,
+            XML(GreedyBytes)
+        )
     )
 )
 

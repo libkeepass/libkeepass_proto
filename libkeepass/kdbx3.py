@@ -12,7 +12,7 @@ from .common import (
     aes_kdf, AES256Payload, ChaCha20Payload, TwoFishPayload, Concatenated,
     DynamicDict, compute_key_composite, Decompressed, Reparsed,
     compute_master, CompressionFlags, CredentialsError, PayloadChecksumError,
-    XML
+    XML, CipherId, ProtectedStreamId, Unprotect
 )
 
 
@@ -28,16 +28,6 @@ kdf_uuids = {
 
 # -------------------- Dynamic Header --------------------
 
-# payload encryption method
-# https://github.com/keepassxreboot/keepassxc/blob/8324d03f0a015e62b6182843b4478226a5197090/src/format/KeePass2.cpp#L24-L26
-CipherId = Mapping(
-    GreedyBytes,
-    {'aes256': b'1\xc1\xf2\xe6\xbfqCP\xbeX\x05!j\xfcZ\xff',
-     'twofish': b'\xadh\xf2\x9fWoK\xb9\xa3j\xd4z\xf9e4l',
-     'chacha20': b'\xd6\x03\x8a+\x8boL\xb5\xa5$3\x9a1\xdb\xb5\x9a'
-    }
-)
-
 # https://github.com/dlech/KeePass2.x/blob/dbb9d60095ef39e6abc95d708fb7d03ce5ae865e/KeePassLib/Serialization/KdbxFile.cs#L234-L246
 DynamicHeaderItem = Struct(
     "id" / Mapping(
@@ -52,7 +42,7 @@ DynamicHeaderItem = Struct(
          'encryption_iv': 7,
          'protected_stream_key': 8,
          'stream_start_bytes': 9,
-         'inner_random_stream_id': 10,
+         'protected_stream_id': 10,
         }
     ),
     "data" / Prefixed(
@@ -62,6 +52,7 @@ DynamicHeaderItem = Struct(
             {'compression_flags': CompressionFlags,
              'cipher_id': CipherId,
              'transform_rounds': Int32ul,
+             'protected_stream_id': ProtectedStreamId
             },
             default=GreedyBytes
         )
@@ -118,7 +109,7 @@ PayloadBlocks = RepeatUntil(
 # -------------------- Payload Decryption/Decompression --------------------
 
 
-# Compressed Bytes <---> Stream Start Bytes, Compressed XML
+# Compressed Bytes <---> Stream Start Bytes, Decompressed XML
 UnpackedPayload = Reparsed(
     Struct(
         # validate payload decryption
@@ -128,11 +119,15 @@ UnpackedPayload = Reparsed(
             this,
             # exception=CredentialsError
         ),
-        "xml" / XML(
-            IfThenElse(
-                this._._.header.value.dynamic_header.compression_flags.data.compression,
-                Decompressed(Concatenated(PayloadBlocks)),
-                Concatenated(PayloadBlocks)
+        "xml" / Unprotect(
+            this._._.header.value.dynamic_header.protected_stream_id.data,
+            this._._.header.value.dynamic_header.protected_stream_key.data,
+            XML(
+                IfThenElse(
+                    this._._.header.value.dynamic_header.compression_flags.data.compression,
+                    Decompressed(Concatenated(PayloadBlocks)),
+                    Concatenated(PayloadBlocks)
+                )
             )
         )
     )
