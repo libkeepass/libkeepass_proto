@@ -81,7 +81,7 @@ def compute_header_hmac_hash(context):
 
 VariantDictionaryItem = Struct(
     "type" / Byte,
-    "key" / Prefixed(Int32ul, GreedyString('utf8')),
+    "key" / Prefixed(Int32ul, GreedyString('utf-8')),
     "value" / Prefixed(
         Int32ul,
         Switch(
@@ -92,7 +92,7 @@ VariantDictionaryItem = Struct(
              0x0C: Int32sl,
              0x0D: Int64sl,
              0x42: GreedyBytes,
-             0x18: GreedyString
+             0x18: GreedyString('utf-8')
             }
         )
     ),

@@ -150,23 +150,24 @@ class UnprotectedStream(Adapter):
     def _decode(self, tree, con, path):
         cipher = self.get_cipher(self.protected_stream_key(con))
         for elem in tree.xpath(self.protected_xpath):
-            elem.text = cipher.decrypt(
-                base64.b64decode(
-                    elem.text
-                )
-
-            )
+            if elem.text is not None:
+                elem.text = cipher.decrypt(
+                    base64.b64decode(
+                        elem.text
+                    )
+                ).decode('utf-8')
             elem.attrib['Protected'] = 'False'
         return tree
 
     def _encode(self, tree, con, path):
         cipher = self.get_cipher(self.protected_stream_key(con))
         for elem in tree.xpath(self.unprotected_xpath):
-            elem.text = base64.b64encode(
-                cipher.encrypt(
-                    elem.text.encode('utf-8')
+            if elem.text is not None:
+                elem.text = base64.b64encode(
+                    cipher.encrypt(
+                        elem.text.encode('utf-8')
+                    )
                 )
-            )
             elem.attrib['Protected'] = 'True'
         return tree
 
